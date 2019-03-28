@@ -417,6 +417,132 @@ func buildCPPInterfaceWrapperMethods(component ComponentDefinition, class Compon
 	return nil
 }
 
+
+func buildCPPInterfaceGetProcAddress(component ComponentDefinition, w LanguageWriter, NameSpace string) error {
+
+	w.Writeln("")
+	w.Writeln("/*************************************************************************************************************************")
+	w.Writeln(" Function table implementation")
+	w.Writeln("**************************************************************************************************************************/")
+	w.Writeln("")
+	w.Writeln("%sResult _%s_getprocaddress_internal(const char * pProcName, void ** ppProcAddress)", NameSpace, strings.ToLower (NameSpace))
+	w.Writeln("{")
+	w.Writeln("  if (pProcName == nullptr)")		
+	w.Writeln("    return %s_ERROR_INVALIDPARAM", strings.ToUpper (NameSpace))
+	w.Writeln("  if (ppProcAddress == nullptr)")		
+	w.Writeln("    return %s_ERROR_INVALIDPARAM", strings.ToUpper (NameSpace))
+	w.Writeln("  *ppProcAddress = nullptr;")
+	w.Writeln("  std::string sProcName (pProcName)")
+	w.Writeln("")
+		
+	w.Writeln("  // Copy to fixed length lookup string")	
+	w.Writeln("  char Characters[3];")
+	w.Writeln("  Characters[0] = pProcName[0];")
+	w.Writeln("  for (j = 0; j < 2; j++) {")
+	w.Writeln("    if (Characters[j] != 0) {")
+	w.Writeln("      Characters[j + 1] = pProcName[j + 1];")
+	w.Writeln("    } else {")
+	w.Writeln("      Characters[j + 1] = 0;")
+	w.Writeln("    }")
+	w.Writeln("  }")
+	w.Writeln("")
+		
+	global := component.Global;
+	
+	ProcNameMap := make (map[string]int);
+	for i := 0; i < len(component.Classes); i++ {
+		class := component.Classes[i]
+		for j := 0; j < len(class.Methods); j++ {
+			method := class.Methods[j]
+			procName := strings.ToLower (class.ClassName + "_" + method.MethodName);
+			ProcNameMap[procName] = 1;
+		}
+	}
+	for j := 0; j < len(global.Methods); j++ {
+		method := global.Methods[j]
+		procName := strings.ToLower (method.MethodName);
+		ProcNameMap[procName] = 1;
+	}
+	
+	
+	NameCharMap := make (map[string]map[string]map[string]int);
+	for procName, _ := range ProcNameMap {
+		firstChar := procName[0:1];
+		secondChar := procName[1:2];
+		thirdChar := procName[2:3];
+		
+		if (NameCharMap[firstChar] == nil) {
+			NameCharMap[firstChar] = make (map[string]map[string]int);
+		}
+
+		if (NameCharMap[firstChar][secondChar] == nil) {
+			NameCharMap[firstChar][secondChar] = make (map[string]int);
+		}
+		
+		NameCharMap[firstChar][secondChar][thirdChar] = 1;
+	}
+		
+	
+	for key1, value1 := range NameCharMap {
+	
+		firstCharString := "'" + key1 + "'";
+		if (key1 == "") {
+			firstCharString = "0";
+		}
+
+		w.Writeln("  if (Characters[0] == %s) {", firstCharString)
+
+		for key2, value2 := range value1 {
+
+			secondCharString := "'" + key2 + "'";
+			if (key2 == "") {
+				secondCharString = "0";
+			}
+		
+			w.Writeln("    if (Characters[1] == %s) {", secondCharString)
+
+			for key3, _ := range value2 {
+
+				thirdCharString := "'" + key3 + "'";
+				if (key3 == "") {
+					thirdCharString = "0";
+				}
+				
+				w.Writeln("      if (Characters[2] == %s) {", thirdCharString)
+			
+				for procName, _ := range ProcNameMap {
+					firstChar := procName[0:1];
+					secondChar := procName[1:2];
+					thirdChar := procName[2:3];
+				
+					if ((key1 == firstChar) && (key2 == secondChar) && (key3 == thirdChar)) {
+						w.Writeln("        if (sProcName == \"%s\") {", procName)
+						w.Writeln("          *ppProcAddress = (void *) &%s_%s;", strings.ToLower (NameSpace), procName)
+						w.Writeln("          return %s_SUCCESS;", strings.ToUpper (NameSpace))			
+						w.Writeln("        }")
+					}
+				}
+				
+				w.Writeln("      }")
+			}
+			
+			w.Writeln("    }")
+		}
+	
+		w.Writeln("  }")
+		w.Writeln("")
+       				
+    }
+	
+	
+	w.Writeln("  return %s_ERROR_COULDNOTFINDLIBRARYEXPORT", strings.ToUpper (NameSpace))
+	w.Writeln("}")
+	w.Writeln("")
+
+	return nil;
+
+}
+
 func buildCPPInterfaceWrapper(component ComponentDefinition, w LanguageWriter, NameSpace string, NameSpaceImplementation string, ClassIdentifier string, BaseName string, doJournal bool) error {
 	w.Writeln("#include \"%s_abi.hpp\"", BaseName)
 	w.Writeln("#include \"%s_interfaces.hpp\"", BaseName)
@@ -506,6 +632,13 @@ func buildCPPInterfaceWrapper(component ComponentDefinition, w LanguageWriter, N
 		}
 	}
 
+	
+	err := buildCPPInterfaceGetProcAddress (component, w, NameSpace);
+	if err != nil {
+		return err
+	}
+	
+	
 	w.Writeln("")
 	w.Writeln("/*************************************************************************************************************************")
 	w.Writeln(" Global functions implementation")
@@ -584,6 +717,11 @@ func writeCImplementationMethod(method ComponentDefinitionMethod, w LanguageWrit
 							  fmt.Sprintf(indentString + indentString + "if (s%s != \"\") {\n", method.Params[0].ParamName) +	
 							  fmt.Sprintf(indentString + indentString + indentString + "m_GlobalJournal = std::make_shared<C%sInterfaceJournal> (s%s);\n", NameSpace, method.Params[0].ParamName) + 
 							  fmt.Sprintf(indentString + indentString + "}\n");
+	}
+
+	if (isSpecialFunction == eSpecialMethodInstanceInfo) {
+		callCPPFunctionCode = fmt.Sprintf(indentString + indentString + "*p%s = (%s_uint64) &_%s_getprocaddress_internal;\n", method.Params[0].ParamName, NameSpace, strings.ToLower (NameSpace));
+		
 	}
 	
 	journalInitFunctionCode := "";

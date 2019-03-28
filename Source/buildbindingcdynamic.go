@@ -133,7 +133,7 @@ func buildDynamicCCPPHeader(component ComponentDefinition, w LanguageWriter, Nam
 	w.Writeln("  GetProcAddress Definition")
 	w.Writeln("**************************************************************************************************************************/")
 	w.Writeln("")
-	w.Writeln("typedef %sResult (*P%sGetProcAddress) (const char * pProcName, const void * pWrapper, void ** ppProcAddress);", NameSpace, NameSpace)
+	w.Writeln("typedef %sResult (*P%sGetProcAddress) (const char * pProcName, void ** ppProcAddress);", NameSpace, NameSpace)
 	w.Writeln("")
 	
 
@@ -326,7 +326,7 @@ func buildDynamicCLoadTableFromCallbackCode(component ComponentDefinition, w Lan
 			method := class.Methods[j]
 
 			w.Writeln("pFuncPtr = nullptr;")
-			w.Writeln("errorCode = pGetProcAddress (\"%s_%s\");", strings.ToLower(class.ClassName), strings.ToLower(method.MethodName))
+			w.Writeln("errorCode = pGetProcAddress (\"%s_%s\", &pFuncPtr);", strings.ToLower(class.ClassName), strings.ToLower(method.MethodName))
 			w.Writeln("if (errorCode != %s_SUCCESS)", strings.ToUpper (NameSpace))
 			w.Writeln("  return errorCode;")
 			w.Writeln("if (pFuncPtr == nullptr)")
@@ -343,7 +343,7 @@ func buildDynamicCLoadTableFromCallbackCode(component ComponentDefinition, w Lan
 		method := global.Methods[j]
 		
 		w.Writeln("pFuncPtr = nullptr;")
-		w.Writeln("errorCode = pGetProcAddress (\"%s\");", strings.ToLower(method.MethodName))
+		w.Writeln("errorCode = pGetProcAddress (\"%s\", &pFuncPtr);", strings.ToLower(method.MethodName))
 		w.Writeln("if (errorCode != %s_SUCCESS)", strings.ToUpper (NameSpace))
 		w.Writeln("  return errorCode;")
 		w.Writeln("if (pFuncPtr == nullptr)")

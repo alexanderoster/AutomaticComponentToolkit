@@ -50,6 +50,7 @@ const (
 	eSpecialMethodVersion = 2
 	eSpecialMethodJournal = 3
 	eSpecialMethodError = 4
+	eSpecialMethodInstanceInfo = 5
 )
 
 // ComponentDefinitionParam definition of a method parameter used in the component's API
@@ -113,6 +114,7 @@ type ComponentDefinitionGlobal struct {
 	ReleaseMethod string `xml:"releasemethod,attr"`
 	JournalMethod string `xml:"journalmethod,attr"`
 	VersionMethod string `xml:"versionmethod,attr"`
+	InstanceInfoMethod string `xml:"instanceinfomethod,attr"`
 	Methods   []ComponentDefinitionMethod `xml:"method"`
 }
 
@@ -881,6 +883,19 @@ func CheckHeaderSpecialFunction (method ComponentDefinitionMethod, global Compon
 		
 		return eSpecialMethodError, nil;
 	}
+	
+	if (method.MethodName == global.InstanceInfoMethod) {
+		if (len (method.Params) != 1) {
+			return eSpecialMethodNone, errors.New ("InstanceInfo method does not match the expected function template");
+		}
+		
+		if (method.Params[0].ParamType != "uint64") || (method.Params[0].ParamPass != "return") {
+			return eSpecialMethodNone, errors.New ("InstanceInfo method does not match the expected function template");
+		}
+
+		return eSpecialMethodInstanceInfo, nil;
+	}
+	
 
 	return eSpecialMethodNone, nil;
 }
