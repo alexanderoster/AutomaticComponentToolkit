@@ -130,6 +130,17 @@ func buildDynamicCCPPHeader(component ComponentDefinition, w LanguageWriter, Nam
 
 	w.Writeln("")
 	w.Writeln("/*************************************************************************************************************************")
+	w.Writeln("  GetProcAddress Definition")
+	w.Writeln("**************************************************************************************************************************/")
+	w.Writeln("")
+	w.Writeln("typedef %sResult (*P%sGetProcAddress) (const char * pProcName, const void * pWrapper, void ** ppProcAddress);", NameSpace, NameSpace)
+	w.Writeln("")
+	
+
+
+	
+	w.Writeln("")
+	w.Writeln("/*************************************************************************************************************************")
 	w.Writeln(" Function Table Structure")
 	w.Writeln("**************************************************************************************************************************/")
 	w.Writeln("")
@@ -160,7 +171,8 @@ func buildDynamicCCPPHeader(component ComponentDefinition, w LanguageWriter, Nam
 		w.Writeln("%sResult Init%sWrapperTable (s%sDynamicWrapperTable * pWrapperTable);", NameSpace, NameSpace, NameSpace)
 		w.Writeln("%sResult Release%sWrapperTable (s%sDynamicWrapperTable * pWrapperTable);", NameSpace, NameSpace, NameSpace)
 		w.Writeln("%sResult Load%sWrapperTable (s%sDynamicWrapperTable * pWrapperTable, const char * pLibraryFileName);", NameSpace, NameSpace, NameSpace)
-
+		w.Writeln("%sResult Populate%sWrapperTable (s%sDynamicWrapperTable * pWrapperTable, P%sGetProcAddress pGetProcAddress);", NameSpace, NameSpace, NameSpace, NameSpace)
+		
 		w.Writeln("")
 	}
 
@@ -291,6 +303,61 @@ func buildDynamicCLoadTableCode(component ComponentDefinition, w LanguageWriter,
 	return nil
 }
 
+
+
+func buildDynamicCLoadTableFromCallbackCode(component ComponentDefinition, w LanguageWriter, NameSpace string, BaseName string) error {
+	global := component.Global
+	
+	w.Writeln("%sResult errorCode;", NameSpace)
+	w.Writeln("void * pFuncPtr;")		
+	
+	w.Writeln("if (pWrapperTable == nullptr)")
+	w.Writeln("  return %s_ERROR_INVALIDPARAM;", strings.ToUpper(NameSpace))
+	w.Writeln("if (pGetProcAddress == nullptr)")
+	w.Writeln("  return %s_ERROR_INVALIDPARAM;", strings.ToUpper(NameSpace))
+
+	w.Writeln("")
+	w.Writeln("pWrapperTable->m_LibraryHandle = nullptr;")
+	w.Writeln("")
+
+	for i := 0; i < len(component.Classes); i++ {
+		class := component.Classes[i]
+		for j := 0; j < len(class.Methods); j++ {
+			method := class.Methods[j]
+
+			w.Writeln("pFuncPtr = nullptr;")
+			w.Writeln("errorCode = pGetProcAddress (\"%s_%s\");", strings.ToLower(class.ClassName), strings.ToLower(method.MethodName))
+			w.Writeln("if (errorCode != %s_SUCCESS)", strings.ToUpper (NameSpace))
+			w.Writeln("  return errorCode;")
+			w.Writeln("if (pFuncPtr == nullptr)")
+			w.Writeln("  return %s_ERROR_COULDNOTFINDLIBRARYEXPORT;", strings.ToUpper (NameSpace))
+			w.Writeln("pWrapperTable->m_%s_%s = (P%s%s_%sPtr) pFuncPtr;", class.ClassName, method.MethodName, NameSpace, class.ClassName, method.MethodName)
+			w.Writeln("")			
+			
+		}
+			
+	}
+
+	global = component.Global
+	for j := 0; j < len(global.Methods); j++ {
+		method := global.Methods[j]
+		
+		w.Writeln("pFuncPtr = nullptr;")
+		w.Writeln("errorCode = pGetProcAddress (\"%s\");", strings.ToLower(method.MethodName))
+		w.Writeln("if (errorCode != %s_SUCCESS)", strings.ToUpper (NameSpace))
+		w.Writeln("  return errorCode;")
+		w.Writeln("if (pFuncPtr == nullptr)")
+		w.Writeln("  return %s_ERROR_COULDNOTFINDLIBRARYEXPORT;", strings.ToUpper (NameSpace))
+		w.Writeln("pWrapperTable->m_%s = (P%s%sPtr) pFuncPtr;", method.MethodName, NameSpace, method.MethodName)
+		w.Writeln("")
+		
+	}
+
+	w.Writeln("return %s_SUCCESS;", strings.ToUpper(NameSpace))
+
+	return nil
+}
+
 func buildDynamicCImplementation(component ComponentDefinition, w LanguageWriter, NameSpace string, BaseName string) error {
 	w.Writeln("#include \"%s_types.h\"", BaseName)
 	w.Writeln("#include \"%s_dynamic.h\"", BaseName)
@@ -332,6 +399,17 @@ func buildDynamicCImplementation(component ComponentDefinition, w LanguageWriter
 
 	w.Writeln("}")
 	w.Writeln("")
+	
+	w.Writeln("%sResult Populate%sWrapperTable (s%sDynamicWrapperTable * pWrapperTable, P%sGetProcAddress pGetProcAddress);", NameSpace, NameSpace, NameSpace, NameSpace)
+	w.Writeln("{")
+
+	w.AddIndentationLevel(1)
+	buildDynamicCLoadTableFromCallbackCode(component, w, NameSpace, BaseName)
+	w.AddIndentationLevel(-1)
+
+	w.Writeln("}")
+	w.Writeln("")
+	
 
 	return nil
 }
@@ -803,6 +881,14 @@ func buildDynamicCppHeader(component ComponentDefinition, w LanguageWriter, Name
 	w.Writeln("    CheckError(nullptr, checkBinaryVersion());")
 	w.Writeln("  }")
 	w.Writeln("  ")
+	w.Writeln("  %sWrapper (%s_uint64 instanceInfo)", cppClassPrefix, NameSpace)
+	w.Writeln("  {")
+	w.Writeln("    CheckError (nullptr, initWrapperTable (&m_WrapperTable));")
+	w.Writeln("    CheckError (nullptr, populateWrapperTable (&m_WrapperTable, (P%sGetProcAddress) instanceInfo));", NameSpace)
+	w.Writeln("    ")
+	w.Writeln("    CheckError(nullptr, checkBinaryVersion());")
+	w.Writeln("  }")
+	w.Writeln("  ")
 
 	w.Writeln("  static PWrapper loadLibrary (const std::string &sFileName)")
 	w.Writeln("  {")
@@ -841,10 +927,12 @@ func buildDynamicCppHeader(component ComponentDefinition, w LanguageWriter, Name
 	w.Writeln("    }")
 	w.Writeln("    return %s_SUCCESS;", strings.ToUpper(NameSpace))
 	w.Writeln("  }")
+	w.Writeln("")
 
 	w.Writeln("  %sResult initWrapperTable(s%sDynamicWrapperTable * pWrapperTable);", NameSpace, NameSpace)
 	w.Writeln("  %sResult releaseWrapperTable(s%sDynamicWrapperTable * pWrapperTable);", NameSpace, NameSpace)
 	w.Writeln("  %sResult loadWrapperTable(s%sDynamicWrapperTable * pWrapperTable, const char * pLibraryFileName);", NameSpace, NameSpace)
+	w.Writeln("  %sResult populateWrapperTable(s%sDynamicWrapperTable * pWrapperTable, P%sGetProcAddress pGetProcAddress);", NameSpace, NameSpace, NameSpace)
 	w.Writeln("")
 
 	for i := 0; i < len(component.Classes); i++ {
@@ -961,6 +1049,18 @@ func buildDynamicCppHeader(component ComponentDefinition, w LanguageWriter, Name
 
 	w.Writeln("  ")
 
+	w.Writeln("  inline %sResult %sWrapper::populateWrapperTable (s%sDynamicWrapperTable * pWrapperTable, P%sGetProcAddress pGetProcAddress)", NameSpace, cppClassPrefix, NameSpace, NameSpace)
+	w.Writeln("  {")
+
+	w.AddIndentationLevel(2)
+	buildDynamicCLoadTableFromCallbackCode(component, w, NameSpace, BaseName)
+	w.AddIndentationLevel(-2)
+
+	w.Writeln("  }")
+
+	w.Writeln("  ")
+	
+	
 	for i := 0; i < len(component.Classes); i++ {
 		class := component.Classes[i]
 		cppClassName := cppClassPrefix + class.ClassName
